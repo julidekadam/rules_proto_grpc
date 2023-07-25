@@ -63,9 +63,9 @@ def proto_compile_impl(ctx):
     extra_protoc_files = ctx.files.extra_protoc_files
 
     # Execute with extracted attrs
-    return proto_compile(ctx, options, extra_protoc_args, extra_protoc_files, extra_protoc_outputs)
+    return proto_compile(ctx, options, extra_protoc_args, extra_protoc_files)
 
-def proto_compile(ctx, options, extra_protoc_args, extra_protoc_files, extra_protoc_outputs):
+def proto_compile(ctx, options, extra_protoc_args, extra_protoc_files):
     """
     Common implementation function for lang_*_compile rules.
 
@@ -371,7 +371,7 @@ def proto_compile(ctx, options, extra_protoc_args, extra_protoc_files, extra_pro
             arguments = [args],
             inputs = cmd_inputs,
             tools = tools,
-            outputs = plugin_protoc_outputs + extra_protoc_outputs,
+            outputs = plugin_protoc_outputs,
             env = plugin_env,
             use_default_shell_env = plugin.use_built_in_shell_environment,
             input_manifests = cmd_input_manifests,
