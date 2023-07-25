@@ -62,10 +62,27 @@ def proto_compile_impl(ctx):
     extra_protoc_args = getattr(ctx.attr, "extra_protoc_args", [])
     extra_protoc_files = ctx.files.extra_protoc_files
 
-    # Execute with extracted attrs
-    return proto_compile(ctx, options, extra_protoc_args, extra_protoc_files)
+    transitive_protoc_files = []
+    transitive_protoc_args = []
+    extra_protoc_outputs = []
 
-def proto_compile(ctx, options, extra_protoc_args, extra_protoc_files):
+    for proto in ctx.attr.protos:
+        direct_sources_basenames = [f.basename for f in proto[ProtoInfo].direct_sources]
+        for transitive_proto in proto[ProtoInfo].transitive_imports.to_list():
+            transitive_protoc_files.append(transitive_proto)
+            transitive_protoc_args.append(transitive_proto.basename)
+            if transitive_proto.basename not in direct_sources_basenames:
+                extra_protoc_outputs.append(transitive_proto.basename.replace(".proto", ".ts"))
+    options = ctx.attr.options
+    extra_protoc_args = getattr(ctx.attr, "extra_protoc_args", [])
+    extra_protoc_files = ctx.files.extra_protoc_files + transitive_protoc_files
+
+
+
+    # Execute with extracted attrs
+    return proto_compile(ctx, options, extra_protoc_args, extra_protoc_files, extra_protoc_outputs)
+
+def proto_compile(ctx, options, extra_protoc_args, extra_protoc_files, extra_protoc_outputs):
     """
     Common implementation function for lang_*_compile rules.
 
@@ -84,18 +101,8 @@ def proto_compile(ctx, options, extra_protoc_args, extra_protoc_files):
 
     # Load attrs
     proto_infos = [dep[ProtoInfo] for dep in ctx.attr.protos]
-    proto_dep_infos = [dep[ProtoInfo] for dep in ctx.attr.deps]
     plugins = [plugin[ProtoPluginInfo] for plugin in ctx.attr._plugins]
     verbose = ctx.attr.verbose
-    proto_dict = {}
-
-    for proto_info in proto_infos + proto_dep_infos:
-        for proto in proto_info.direct_sources:
-            proto_dict[proto.path] = proto_info
-
-    for proto_info in proto_infos + [dep[ProtoInfo] for dep in ctx.attr.deps]:
-        for proto in proto_info.direct_sources:
-            proto_dict[proto.path] = proto_info
 
     # Load toolchain and tools
     protoc_toolchain_info = ctx.toolchains[str(Label("//protobuf:toolchain_type"))]
@@ -159,7 +166,7 @@ def proto_compile(ctx, options, extra_protoc_args, extra_protoc_files):
         plugin_outputs = []
         proto_paths = []  # The paths passed to protoc
         for proto_info in proto_infos:
-            for proto in proto_info.transitive_imports.to_list():
+            for proto in proto_info.direct_sources:
                 # Check for exclusion
                 if any([
                     proto.dirname.endswith(exclusion) or proto.path.endswith(exclusion)
@@ -177,11 +184,11 @@ def proto_compile(ctx, options, extra_protoc_args, extra_protoc_files):
                 for pattern in plugin.outputs:
                     plugin_outputs.append(ctx.actions.declare_file("{}/{}".format(
                         rel_premerge_root,
-                        get_output_filename(proto, pattern, proto_dict[proto.path]),
+                        get_output_filename(proto, pattern, proto_info),
                     )))
 
                 # Get proto path for protoc
-                proto_paths.append(descriptor_proto_path(proto, proto_dict[proto.path]))
+                proto_paths.append(descriptor_proto_path(proto, proto_info))
 
         # Skip plugin if all proto files have now been excluded
         if len(protos) == 0:
@@ -371,7 +378,7 @@ def proto_compile(ctx, options, extra_protoc_args, extra_protoc_files):
             arguments = [args],
             inputs = cmd_inputs,
             tools = tools,
-            outputs = plugin_protoc_outputs,
+            outputs = plugin_protoc_outputs + extra_protoc_outputs,
             env = plugin_env,
             use_default_shell_env = plugin.use_built_in_shell_environment,
             input_manifests = cmd_input_manifests,
